@@ -22,9 +22,10 @@ rates.
 
 ```bash
 pip install -r requirements.txt
-python src/ingest_cards.py      # fetch real card data
-python src/train.py --epochs 5  # train the model
-python src/evaluate.py          # evaluate the checkpoint
+python src/ingest_cards.py          # fetch real card data
+python src/train.py                 # train the model using config.yaml
+python src/evaluate.py              # evaluate the checkpoint
 ```
 The training script saves its best weights to `checkpoints/best_model.pt` and
-`evaluate.py` will report basic metrics against the full dataset.
+`evaluate.py` will report basic metrics against the full dataset. Parameters can
+be adjusted in `config.yaml` or overridden on the command line.

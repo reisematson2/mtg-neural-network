@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+import yaml
 
 import numpy as np
 import pandas as pd
@@ -13,17 +14,26 @@ from model import CardStrengthPredictor
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate trained model")
-    parser.add_argument("--checkpoint", type=str, default="checkpoints/best_model.pt")
+    parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument("--config", type=str, default="config.yaml")
     args = parser.parse_args()
 
+    config = {}
+    if Path(args.config).is_file():
+        with open(args.config, "r") as f:
+            config = yaml.safe_load(f) or {}
+
+    data_path = config.get("paths", {}).get("data", "card_data.csv")
+    checkpoint = args.checkpoint or Path(config.get("paths", {}).get("checkpoint_dir", "checkpoints")) / "best_model.pt"
+
     # Build preprocessing using the original training split
-    train_ds, _ = load_train_val_split()
-    full_df = pd.read_csv("card_data.csv")
+    train_ds, _ = load_train_val_split(path=data_path)
+    full_df = pd.read_csv(data_path)
     dataset = CardDataset(full_df, vocab=train_ds.vocab, cat_maps=train_ds.cat_maps, scaler=train_ds.scaler)
     loader = DataLoader(dataset, batch_size=32, shuffle=False, collate_fn=collate_fn)
 
     model = CardStrengthPredictor(len(train_ds.vocab), dataset.feature_dim)
-    model.load_state_dict(torch.load(args.checkpoint, map_location="cpu"))
+    model.load_state_dict(torch.load(checkpoint, map_location="cpu"))
     model.eval()
 
     preds, labels = [], []
@@ -45,15 +55,11 @@ def main():
     plt.ylabel("Predicted Strength")
     plt.savefig("pred_vs_actual.png")
 
-    diff = preds - labels
-    order = np.argsort(diff)
-    over_idx = order[-10:][::-1]
-    under_idx = order[:10]
+    abs_err = np.abs(preds - labels)
+    top_idx = np.argsort(abs_err)[-10:][::-1]
     df = dataset.df
-    print("Top 10 over-performing predictions:")
-    print(df.iloc[over_idx][["name", "strength_score"]])
-    print("Top 10 under-performing predictions:")
-    print(df.iloc[under_idx][["name", "strength_score"]])
+    print("Top 10 prediction errors:")
+    print(df.iloc[top_idx][["name", "strength_score"]].assign(predicted=preds[top_idx], error=abs_err[top_idx]))
 
 
 if __name__ == "__main__":

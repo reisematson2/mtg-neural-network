@@ -87,9 +87,11 @@ def collate_fn(batch):
     return padded_texts, lengths, struct_tensor, label_tensor
 
 
-def load_train_val_split(test_size: float = 0.2, seed: int = 42) -> Tuple[CardDataset, CardDataset]:
-    """Load ``card_data.csv`` and return train/validation datasets."""
-    path = Path('card_data.csv')
+def load_train_val_split(
+    path: str | Path = "card_data.csv", test_size: float = 0.2, seed: int = 42
+) -> Tuple[CardDataset, CardDataset]:
+    """Load a CSV file and return train/validation ``CardDataset`` objects."""
+    path = Path(path)
     df = pd.read_csv(path)
     np.random.seed(seed)
     indices = np.random.permutation(len(df))

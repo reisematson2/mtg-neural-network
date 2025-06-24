@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+import yaml
 
 import torch
 from torch import nn
@@ -11,22 +12,41 @@ from model import CardStrengthPredictor
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train card strength model")
-    parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--embed-dim", type=int, default=32)
-    parser.add_argument("--lstm-dim", type=int, default=32)
-    parser.add_argument("--hidden-dim", type=int, default=64)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints")
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--embed-dim", type=int, default=None)
+    parser.add_argument("--lstm-dim", type=int, default=None)
+    parser.add_argument("--hidden-dim", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--checkpoint-dir", type=str, default=None)
+    parser.add_argument("--config", type=str, default="config.yaml")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    torch.manual_seed(args.seed)
+    config = {}
+    if Path(args.config).is_file():
+        with open(args.config, "r") as f:
+            config = yaml.safe_load(f) or {}
 
-    train_ds, val_ds = load_train_val_split(seed=args.seed)
+    train_cfg = config.get("training", {})
+    model_cfg = config.get("model", {})
+    paths_cfg = config.get("paths", {})
+
+    args.epochs = args.epochs or train_cfg.get("epochs", 5)
+    args.batch_size = args.batch_size or train_cfg.get("batch_size", 16)
+    args.lr = args.lr or train_cfg.get("learning_rate", 1e-3)
+    args.embed_dim = args.embed_dim or model_cfg.get("embed_dim", 32)
+    args.lstm_dim = args.lstm_dim or model_cfg.get("lstm_dim", 32)
+    args.hidden_dim = args.hidden_dim or model_cfg.get("hidden_dim", 64)
+    args.seed = args.seed or train_cfg.get("seed", 42)
+    args.checkpoint_dir = args.checkpoint_dir or paths_cfg.get("checkpoint_dir", "checkpoints")
+    data_path = paths_cfg.get("data", "card_data.csv")
+
+    torch.manual_seed(args.seed)
+    train_ds, val_ds = load_train_val_split(path=data_path, seed=args.seed)
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
                               collate_fn=collate_fn)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
