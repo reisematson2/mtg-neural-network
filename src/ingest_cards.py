@@ -1,9 +1,11 @@
+# This script ingests only cards from the Tarkir – Dragonstorm (TDS) set.
 """Ingest Magic: The Gathering card data from Scryfall.
 
-The script downloads basic information for each card and stores it in
-``card_data.csv``. A placeholder ``strength_score`` column is added based
-on a simple rarity heuristic. This dataset can later be enhanced with
-usage or win-rate statistics from sites like MTGGoldfish.
+The script downloads basic information for each card from the Tarkir –
+Dragonstorm set and stores it in ``card_data.csv``. A placeholder
+``strength_score`` column is added based on a simple rarity heuristic.
+This dataset can later be enhanced with usage or win-rate statistics from
+sites like MTGGoldfish.
 """
 
 from __future__ import annotations
@@ -17,6 +19,8 @@ import pandas as pd
 import requests
 
 SCRYFALL_API_URL = "https://api.scryfall.com/cards/search"
+# Ingest only cards from the Tarkir – Dragonstorm set
+SET_CODE = "TDS"
 
 # Map rarities to a numeric baseline strength score
 RARITY_BASE = {
@@ -27,20 +31,20 @@ RARITY_BASE = {
 }
 
 
-def fetch_cards(pages: int = 1, query: str = "*") -> List[Dict]:
-    """Fetch a limited number of pages of card data from Scryfall.
+def fetch_cards() -> List[Dict]:
+    """Fetch all cards from the configured set code.
 
-    Parameters
-    ----------
-    pages:
-        How many pages of results to retrieve.
-    query:
-        Scryfall search query. Defaults to "*" to return all cards.
+    The function follows pagination via ``next_page`` until the set's
+    cards are exhausted.
     """
-    url = f"{SCRYFALL_API_URL}?q={query}&order=set"
+    url = f"{SCRYFALL_API_URL}?q=set%3A{SET_CODE}"
     cards: List[Dict] = []
-    for _ in range(pages):
+    while url:
         resp = requests.get(url)
+        # Handle the case where the set code does not exist
+        if resp.status_code == 404:
+            print(f"Set {SET_CODE} not found on Scryfall")
+            break
         resp.raise_for_status()
         data = resp.json()
         cards.extend(data["data"])
@@ -52,6 +56,7 @@ def fetch_cards(pages: int = 1, query: str = "*") -> List[Dict]:
 
 
 def cards_to_dataframe(cards: List[Dict]) -> pd.DataFrame:
+    # Prepare rows for the DataFrame
     rows = []
     for card in cards:
         rows.append(
@@ -66,7 +71,19 @@ def cards_to_dataframe(cards: List[Dict]) -> pd.DataFrame:
                 "rarity": card.get("rarity"),
             }
         )
-    df = pd.DataFrame(rows)
+
+    columns = [
+        "name",
+        "mana_cost",
+        "type_line",
+        "power",
+        "toughness",
+        "colors",
+        "oracle_text",
+        "rarity",
+    ]
+    # Ensure the DataFrame always has the expected columns
+    df = pd.DataFrame(rows, columns=columns)
     return df
 
 
@@ -85,7 +102,8 @@ def compute_strength_score(df: pd.DataFrame) -> pd.DataFrame:
 
 def main() -> None:
     print("Fetching card data from Scryfall...")
-    cards = fetch_cards(pages=2)
+    # Retrieve all cards from the specified set
+    cards = fetch_cards()
     df = cards_to_dataframe(cards)
     df = compute_strength_score(df)
     out_path = Path("card_data.csv")
