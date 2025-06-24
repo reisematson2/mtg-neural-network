@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 
 from data_loader import load_train_val_split, collate_fn
 from model import CardStrengthPredictor
+import csv
 
 
 def parse_args():
@@ -22,6 +23,48 @@ def parse_args():
     parser.add_argument("--checkpoint-dir", type=str, default=None)
     parser.add_argument("--config", type=str, default="config.yaml")
     return parser.parse_args()
+
+
+def train_model(train_loader, val_loader, vocab_size, feature_dim, embed_dim, lr, lstm_dim, hidden_dim, device, epochs=5, checkpoint_dir="checkpoints"):
+    """Train a model with the given hyperparameters and return final val loss."""
+    model = CardStrengthPredictor(vocab_size, feature_dim,
+                                  embed_dim=embed_dim,
+                                  lstm_dim=lstm_dim,
+                                  hidden_dim=hidden_dim)
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_fn = nn.MSELoss()
+
+    ckpt_dir = Path(checkpoint_dir)
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    best_loss = float("inf")
+    val_loss = float("inf")
+    for epoch in range(epochs):
+        model.train()
+        for text, lengths, feats, labels in train_loader:
+            text, lengths = text.to(device), lengths.to(device)
+            feats, labels = feats.to(device), labels.to(device)
+            optimizer.zero_grad()
+            preds = model(text, lengths, feats)
+            loss = loss_fn(preds, labels)
+            loss.backward()
+            optimizer.step()
+
+        model.eval()
+        val_losses = []
+        with torch.no_grad():
+            for text, lengths, feats, labels in val_loader:
+                text, lengths = text.to(device), lengths.to(device)
+                feats, labels = feats.to(device), labels.to(device)
+                preds = model(text, lengths, feats)
+                loss = loss_fn(preds, labels)
+                val_losses.append(loss.item())
+        val_loss = sum(val_losses) / len(val_losses)
+        if val_loss < best_loss:
+            best_loss = val_loss
+            torch.save(model.state_dict(), ckpt_dir / "best_model.pt")
+
+    return val_loss
 
 
 def main():
@@ -52,51 +95,33 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
                             collate_fn=collate_fn)
 
-    model = CardStrengthPredictor(len(train_ds.vocab), train_ds.feature_dim,
-                                  embed_dim=args.embed_dim,
-                                  lstm_dim=args.lstm_dim,
-                                  hidden_dim=args.hidden_dim)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    loss_fn = nn.MSELoss()
+    lrs = [1e-3, 1e-4]
+    embeds = [64, 128]
 
-    best_loss = float("inf")
-    ckpt_dir = Path(args.checkpoint_dir)
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    results_path = Path("sweep_results.csv")
+    with results_path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["lr", "embed_dim", "val_loss"])
+        for lr in lrs:
+            for embed in embeds:
+                val_loss = train_model(
+                    train_loader,
+                    val_loader,
+                    len(train_ds.vocab),
+                    train_ds.feature_dim,
+                    embed,
+                    lr,
+                    args.lstm_dim,
+                    args.hidden_dim,
+                    device,
+                    epochs=5,
+                    checkpoint_dir=args.checkpoint_dir,
+                )
+                writer.writerow([lr, embed, f"{val_loss:.4f}"])
+                print(f"lr={lr} embed_dim={embed} val_loss={val_loss:.4f}")
 
-    for epoch in range(args.epochs):
-        model.train()
-        train_losses = []
-        for text, lengths, feats, labels in train_loader:
-            text, lengths = text.to(device), lengths.to(device)
-            feats, labels = feats.to(device), labels.to(device)
-            optimizer.zero_grad()
-            preds = model(text, lengths, feats)
-            loss = loss_fn(preds, labels)
-            loss.backward()
-            optimizer.step()
-            train_losses.append(loss.item())
-
-        model.eval()
-        val_losses = []
-        with torch.no_grad():
-            for text, lengths, feats, labels in val_loader:
-                text, lengths = text.to(device), lengths.to(device)
-                feats, labels = feats.to(device), labels.to(device)
-                preds = model(text, lengths, feats)
-                loss = loss_fn(preds, labels)
-                val_losses.append(loss.item())
-        train_loss = sum(train_losses) / len(train_losses)
-        val_loss = sum(val_losses) / len(val_losses)
-        print(f"Epoch {epoch + 1}/{args.epochs} train_loss={train_loss:.4f} val_loss={val_loss:.4f}")
-
-        if val_loss < best_loss:
-            best_loss = val_loss
-            torch.save(model.state_dict(), ckpt_dir / "best_model.pt")
-
-    print(f"Best validation loss: {best_loss:.4f}")
 
 
 if __name__ == "__main__":
