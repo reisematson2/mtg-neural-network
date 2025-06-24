@@ -32,8 +32,19 @@ def main():
     dataset = CardDataset(full_df, vocab=train_ds.vocab, cat_maps=train_ds.cat_maps, scaler=train_ds.scaler)
     loader = DataLoader(dataset, batch_size=32, shuffle=False, collate_fn=collate_fn)
 
-    model = CardStrengthPredictor(len(train_ds.vocab), dataset.feature_dim)
-    model.load_state_dict(torch.load(checkpoint, map_location="cpu"))
+    state = torch.load(checkpoint, map_location="cpu")
+    embed_dim = state["text_emb.weight"].shape[1]
+    lstm_dim = state["lstm.weight_ih_l0"].shape[0] // 4
+    hidden_dim = state["fc.0.weight"].shape[0]
+
+    model = CardStrengthPredictor(
+        len(train_ds.vocab),
+        dataset.feature_dim,
+        embed_dim=embed_dim,
+        lstm_dim=lstm_dim,
+        hidden_dim=hidden_dim,
+    )
+    model.load_state_dict(state)
     model.eval()
 
     preds, labels = [], []
