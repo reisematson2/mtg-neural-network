@@ -1,0 +1,16 @@
+# Default configuration for training and evaluation
+
+paths:
+  data: card_data.csv
+  checkpoint_dir: checkpoints
+
+training:
+  epochs: 5
+  batch_size: 16
+  learning_rate: 0.001
+  seed: 42
+
+model:
+  embed_dim: 32
+  lstm_dim: 32
+  hidden_dim: 64

@@ -10,18 +10,21 @@ This project explores using a neural network to evaluate **Magic: The Gathering*
 4. **Preprocess data** – tokenize oracle text and encode card metadata.
 5. **Train a neural network** – an LSTM encoder processes text while structured features are concatenated and fed through dense layers.
 
-See `src/pipeline.py` for a placeholder implementation with mock card data.
 `src/ingest_cards.py` demonstrates how to download real card details from
 the Scryfall API and save them to `card_data.csv` with a basic
-`strength_score` column. Future iterations can merge this data with
-tournament win rates.
+`strength_score` column. `src/train.py` trains the neural network on this
+dataset and stores the best model checkpoint in the `checkpoints/` folder.
+`src/evaluate.py` loads the saved model and reports prediction metrics on the
+full dataset. Future iterations can merge this data with tournament win
+rates.
 
 ## Running
 
 ```bash
 pip install -r requirements.txt
-python src/pipeline.py  # train on mock data
-python src/ingest_cards.py  # fetch real card data
+python src/ingest_cards.py      # fetch real card data
+python src/train.py --epochs 5  # train the model
+python src/evaluate.py          # evaluate the checkpoint
 ```
-
-The script will run a tiny training loop on example data.
+The training script saves its best weights to `checkpoints/best_model.pt` and
+`evaluate.py` will report basic metrics against the full dataset.
