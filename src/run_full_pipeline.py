@@ -36,8 +36,8 @@ def main() -> None:
     python_exec = sys.executable  # Use the current Python interpreter
 
     if not args.skip_scrape:
-        run_step([python_exec, "src/scrape_protour_results.py"],
-                 "Scraping round results... ")
+        run_step([python_exec, "src/scrape_full_protour.py"],
+                 "Fetching decks and results... ")
     else:
         print("Skipping scraping step.")
 

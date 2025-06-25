@@ -3,7 +3,8 @@ from collections import defaultdict
 from pathlib import Path
 import pandas as pd
 
-INPUT_PATH = Path("data/test_matches.json")
+# Input now includes full decklists scraped from Magic.gg
+INPUT_PATH = Path("data/tournament_matches_full.json")
 OUTPUT_PATH = Path("data/card_win_rates.csv")
 
 
