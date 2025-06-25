@@ -1,118 +1,119 @@
-import pandas as pd
-import numpy as np
+"""Utilities for loading card data for model training."""
+
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Tuple, Dict, List, Optional
-from torch.utils.data import Dataset
+from typing import Tuple, List, Dict
+
+import pandas as pd
 import torch
+from torch.utils.data import Dataset, DataLoader, random_split
 
 
-def tokenize(text: str) -> List[str]:
-    return text.lower().replace(',', ' ').replace('.', ' ').split()
+def _tokenize(text: str) -> List[str]:
+    """Simple whitespace tokenizer used for oracle text."""
+    return text.lower().replace("\n", " ").split()
 
 
-def build_vocab(texts: List[str]) -> Dict[str, int]:
-    tokens = sorted({tok for text in texts for tok in tokenize(text)})
-    return {tok: idx + 1 for idx, tok in enumerate(tokens)}  # reserve 0 for PAD
+def _build_vocab(texts: List[str]) -> Dict[str, int]:
+    """Create a vocabulary mapping token to index."""
+    tokens = {tok for t in texts for tok in _tokenize(t)}
+    # Reserve index 0 for padding
+    return {tok: i + 1 for i, tok in enumerate(sorted(tokens))}
 
 
-def encode_text(text: str, vocab: Dict[str, int]) -> List[int]:
-    return [vocab.get(tok, 0) for tok in tokenize(text)]
-
-
-def safe_float(val):
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return 0.0
+def _encode(text: str, vocab: Dict[str, int]) -> List[int]:
+    """Convert a text string to a list of token ids."""
+    return [vocab.get(tok, 0) for tok in _tokenize(text)]
 
 
 class CardDataset(Dataset):
-    """PyTorch dataset for MTG card strength prediction."""
+    """Dataset that loads card data and preprocessing state."""
 
-    def __init__(self, df: pd.DataFrame, vocab: Optional[Dict[str, int]] = None,
-                 cat_maps: Optional[Dict[str, Dict[str, int]]] = None,
-                 scaler: Optional[Dict[str, pd.Series]] = None):
-        self.df = df.copy()
-        num_cols = ["mana_cost", "power", "toughness", "strength_score"]
-        # Clean non-numeric values
-        for col in ["power", "toughness"]:
-            self.df[col] = self.df[col].apply(safe_float)
-        self.df[num_cols] = self.df[num_cols].fillna(0).astype(float)
+    def __init__(self, config: dict) -> None:
+        # Read the CSV containing card data
+        paths_cfg = config.get("paths", {})
+        data_path = Path(paths_cfg.get("data_csv", paths_cfg.get("data", "card_data.csv")))
+        df = pd.read_csv(data_path)
 
-        # Add this line to extract oracle_texts
-        self.texts = self.df["oracle_text"].fillna("").astype(str).tolist()
+        # Store raw dataframe for later inspection
+        self.df = df.reset_index(drop=True)
 
-        # Build vocab from provided texts if not given
-        self.vocab = vocab or build_vocab(self.texts)
-        tokens = [encode_text(t, self.vocab) for t in self.texts]
-        self.tokenized = [tok if len(tok) > 0 else [0] for tok in tokens]
+        # Tokenize oracle_text and build vocabulary over entire dataset
+        texts = self.df["oracle_text"].fillna("").astype(str).tolist()
+        self.vocab = _build_vocab(texts)
+        self.tokens = [_encode(t, self.vocab) for t in texts]
 
-        # Numeric columns
-        num_cols = ['mana_cost', 'power', 'toughness']
-        self.df[num_cols] = self.df[num_cols].fillna(0).astype(float)
-        if scaler is None:
-            means = self.df[num_cols].mean()
-            stds = self.df[num_cols].std().replace(0, 1)
-            self.scaler = {'mean': means, 'std': stds}
-        else:
-            self.scaler = scaler
-        self.df[num_cols] = (self.df[num_cols] - self.scaler['mean']) / self.scaler['std']
-        self.numeric = self.df[num_cols].values.astype('float32')
+        # Numeric features to normalize
+        num_cols = ["mana_value", "power", "toughness", "appearances"]
+        self.df[num_cols] = self.df[num_cols].fillna(0)
+        means = self.df[num_cols].mean()
+        stds = self.df[num_cols].std().replace(0, 1)
+        normed = (self.df[num_cols] - means) / stds
 
-        # Categorical columns
-        cat_cols = ['rarity', 'type_line']
-        self.df[cat_cols] = self.df[cat_cols].fillna('unknown').astype(str)
-        if cat_maps is None:
-            self.cat_maps = {
-                col: {v: i for i, v in enumerate(sorted(self.df[col].unique()))}
-                for col in cat_cols
-            }
-        else:
-            self.cat_maps = cat_maps
+        # Categorical features to one-hot encode
+        cat_cols = ["rarity", "type_line"]
+        self.df[cat_cols] = self.df[cat_cols].fillna("unknown").astype(str)
+        cat_maps = {
+            col: {v: i for i, v in enumerate(sorted(self.df[col].unique()))}
+            for col in cat_cols
+        }
         cat_feats = []
         for col in cat_cols:
-            mapping = self.cat_maps[col]
-            idxs = self.df[col].map(lambda x: mapping.get(x, 0)).astype(int).values
-            one_hot = np.eye(len(mapping))[idxs]
+            idxs = self.df[col].map(cat_maps[col]).astype(int).values
+            one_hot = torch.eye(len(cat_maps[col]))[idxs]
             cat_feats.append(one_hot)
-        self.categorical = np.concatenate(cat_feats, axis=1).astype('float32')
 
-        self.labels = self.df['strength_score'].fillna(0).astype('float32').values
-        self.feature_dim = self.numeric.shape[1] + self.categorical.shape[1]
+        # Combine all structured features into a single tensor
+        numeric_tensor = torch.tensor(normed.values, dtype=torch.float32)
+        categorical_tensor = torch.cat(cat_feats, dim=1).float()
+        self.features = torch.cat([numeric_tensor, categorical_tensor], dim=1)
 
-    def __len__(self) -> int:
+        # Regression targets
+        self.targets = torch.tensor(
+            self.df["strength_score"].fillna(0).values, dtype=torch.float32
+        ).unsqueeze(1)
+
+    def __len__(self) -> int:  # pragma: no cover - trivial
         return len(self.df)
 
-    def __getitem__(self, idx: int):
-        text_ids = self.tokenized[idx]
-        struct = np.concatenate([self.numeric[idx], self.categorical[idx]])
-        label = self.labels[idx]
-        return text_ids, struct, label
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        text = torch.tensor(self.tokens[idx], dtype=torch.long)
+        feats = self.features[idx]
+        target = self.targets[idx]
+        return text, feats, target
 
 
-def collate_fn(batch):
-    texts, structs, labels = zip(*batch)
+def _pad_collate(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
+    """Custom collate_fn to pad text sequences."""
+    texts, feats, targets = zip(*batch)
     lengths = torch.tensor([len(t) for t in texts], dtype=torch.long)
-    padded_texts = torch.nn.utils.rnn.pad_sequence(
-        [torch.tensor(t) for t in texts], batch_first=True
-    )
-    struct_tensor = torch.tensor(np.array(structs), dtype=torch.float32)
-    label_tensor = torch.tensor(labels, dtype=torch.float32).unsqueeze(1)
-    return padded_texts, lengths, struct_tensor, label_tensor
+    padded = torch.nn.utils.rnn.pad_sequence(texts, batch_first=True)
+    feat_tensor = torch.stack(feats)
+    targ_tensor = torch.stack(targets)
+    return padded, lengths, feat_tensor, targ_tensor
 
 
 def load_train_val_split(
-    path: str | Path = "card_data.csv", test_size: float = 0.2, seed: int = 42
-) -> Tuple[CardDataset, CardDataset]:
-    """Load a CSV file and return train/validation ``CardDataset`` objects."""
-    path = Path(path)
-    df = pd.read_csv(path)
-    np.random.seed(seed)
-    indices = np.random.permutation(len(df))
-    split = int(len(df) * (1 - test_size))
-    train_idx, val_idx = indices[:split], indices[split:]
-    train_df = df.iloc[train_idx].reset_index(drop=True)
-    val_df = df.iloc[val_idx].reset_index(drop=True)
-    train_ds = CardDataset(train_df)
-    val_ds = CardDataset(val_df, vocab=train_ds.vocab, cat_maps=train_ds.cat_maps, scaler=train_ds.scaler)
-    return train_ds, val_ds
+    config: dict, test_size: float = 0.2, seed: int = 42
+) -> Tuple[DataLoader, DataLoader, CardDataset]:
+    """Create ``DataLoader`` objects for training and validation."""
+
+    dataset = CardDataset(config)
+
+    val_len = int(len(dataset) * test_size)
+    train_len = len(dataset) - val_len
+    generator = torch.Generator().manual_seed(seed)
+    train_ds, val_ds = random_split(dataset, [train_len, val_len], generator)
+
+    batch_size = config["training"]["batch_size"]
+
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True, collate_fn=_pad_collate
+    )
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False, collate_fn=_pad_collate
+    )
+
+    return train_loader, val_loader, dataset
+

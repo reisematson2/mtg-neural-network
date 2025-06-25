@@ -17,11 +17,11 @@ def test_ingest_creates_csv(tmp_path):
 
 
 def test_model_forward():
-    model = CardStrengthPredictor(vocab_size=10, feature_dim=5)
+    model = CardStrengthPredictor(vocab_size=10, feature_dim=5, config={})
     text = torch.randint(0, 10, (2, 4))
     lengths = torch.tensor([4, 4])
     feats = torch.randn(2, 5)
-    out = model(text, lengths, feats)
+    out = model(feats, text)
     assert out.shape == (2, 1)
 
 

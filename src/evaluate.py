@@ -3,13 +3,11 @@ from pathlib import Path
 import yaml
 
 import numpy as np
-import pandas as pd
 import torch
-from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 
-from data_loader import CardDataset, collate_fn, load_train_val_split
-from model import CardStrengthPredictor
+from src.data_loader import load_train_val_split
+from src.model import CardStrengthPredictor
 
 
 def main():
@@ -23,26 +21,18 @@ def main():
         with open(args.config, "r") as f:
             config = yaml.safe_load(f) or {}
 
-    data_path = config.get("paths", {}).get("data", "card_data.csv")
-    checkpoint = args.checkpoint or Path(config.get("paths", {}).get("checkpoint_dir", "checkpoints")) / "best_model.pt"
+    checkpoint_dir = Path(config.get("paths", {}).get("checkpoint_dir", "checkpoints"))
+    checkpoint = args.checkpoint or checkpoint_dir / "best_model.pt"
 
-    # Build preprocessing using the original training split
-    train_ds, _ = load_train_val_split(path=data_path)
-    full_df = pd.read_csv(data_path)
-    dataset = CardDataset(full_df, vocab=train_ds.vocab, cat_maps=train_ds.cat_maps, scaler=train_ds.scaler)
-    loader = DataLoader(dataset, batch_size=32, shuffle=False, collate_fn=collate_fn)
+    # Load the full dataset for evaluation
+    loader, _, dataset = load_train_val_split(config, test_size=0)
 
     state = torch.load(checkpoint, map_location="cpu")
-    embed_dim = state["text_emb.weight"].shape[1]
-    lstm_dim = state["lstm.weight_ih_l0"].shape[0] // 4
-    hidden_dim = state["fc.0.weight"].shape[0]
 
     model = CardStrengthPredictor(
-        len(train_ds.vocab),
-        dataset.feature_dim,
-        embed_dim=embed_dim,
-        lstm_dim=lstm_dim,
-        hidden_dim=hidden_dim,
+        len(dataset.vocab),
+        dataset.features.shape[1],
+        config.get("model", {}),
     )
     model.load_state_dict(state)
     model.eval()
@@ -50,7 +40,7 @@ def main():
     preds, labels = [], []
     with torch.no_grad():
         for text, lengths, feats, labs in loader:
-            out = model(text, lengths, feats).squeeze(1)
+            out = model(feats, text).squeeze(1)
             preds.extend(out.numpy())
             labels.extend(labs.squeeze(1).numpy())
     preds = np.array(preds)
