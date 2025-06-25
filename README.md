@@ -8,24 +8,34 @@ This project explores using a neural network to evaluate **Magic: The Gathering*
 2. **Collect features** – oracle text, mana cost, card type, power/toughness, etc.
 3. **Gather data** – use the [Scryfall](https://scryfall.com/docs/api) API for card details and scrape tournament sites for complementary win-rate data.
 4. **Preprocess data** – tokenize oracle text and encode card metadata.
-5. **Train a neural network** – an LSTM encoder processes text while structured features are concatenated and fed through dense layers.
+5. **Merge tournament stats** – combine win rates with card features and impute unseen cards.
+6. **Train a neural network** – an LSTM encoder processes text while structured features are concatenated and fed through dense layers.
 
-`src/ingest_cards.py` demonstrates how to download real card details from
-the Scryfall API and save them to `card_data.csv` with a basic
-`strength_score` column. `src/train.py` trains the neural network on this
-dataset and stores the best model checkpoint in the `checkpoints/` folder.
-`src/evaluate.py` loads the saved model and reports prediction metrics on the
-full dataset. Future iterations can merge this data with tournament win
-rates.
+`src/ingest_cards.py` downloads card details from the Scryfall API and saves
+them to `card_data.csv` with a placeholder `strength_score`.
+`src/merge_and_impute.py` then merges real win-rate statistics from
+`data/card_win_rates.csv`, imputes unseen cards with the mean win rate, and
+overwrites the `strength_score` column. The merged data is written back to
+`card_data.csv`.
+`src/train.py` trains the neural network on this dataset and stores the best
+model checkpoint in the `checkpoints/` folder. `src/evaluate.py` loads the
+saved model and reports prediction metrics on the full dataset.
 
 ## Running
 
 ```bash
 pip install -r requirements.txt
 python src/ingest_cards.py          # fetch real card data
+python src/merge_and_impute.py      # merge win rates into card_data.csv
 python src/train.py                 # train the model using config.yaml
 python src/evaluate.py              # evaluate the checkpoint
 ```
 The training script saves its best weights to `checkpoints/best_model.pt` and
 `evaluate.py` will report basic metrics against the full dataset. Parameters can
 be adjusted in `config.yaml` or overridden on the command line.
+
+## Next Steps
+
+- Expand the win-rate dataset beyond the provided sample to improve training.
+- Explore additional card features such as synergies or deck archetypes.
+- Tune hyperparameters and perform cross validation for better performance.
