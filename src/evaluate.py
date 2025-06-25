@@ -3,6 +3,7 @@ from pathlib import Path
 import yaml
 
 import numpy as np
+import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 
@@ -63,6 +64,16 @@ def main():
     cols = [c for c in ["name", "strength_score"] if c in df.columns]
     print("Top 10 prediction errors:")
     print(df.iloc[top_idx][cols].assign(predicted=preds[top_idx], error=abs_err[top_idx]))
+
+    # Save predictions for downstream analysis
+    pred_df = pd.DataFrame(
+        {
+            "card_name": dataset.df.get("name", pd.Series(range(len(preds)))).astype(str),
+            "strength_score": labels,
+            "predicted": preds,
+        }
+    )
+    pred_df.to_csv("predictions.csv", index=False)
 
 
 if __name__ == "__main__":

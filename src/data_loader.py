@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Tuple, List, Dict
+import numpy as np
 
 import pandas as pd
 import torch
@@ -45,29 +46,90 @@ class CardDataset(Dataset):
         self.tokens = [_encode(t, self.vocab) for t in texts]
 
         # Numeric features to normalize
-        num_cols = ["mana_value", "power", "toughness", "appearances"]
-        self.df[num_cols] = self.df[num_cols].fillna(0)
-        means = self.df[num_cols].mean()
-        stds = self.df[num_cols].std().replace(0, 1)
-        normed = (self.df[num_cols] - means) / stds
+        if "mana_value" not in self.df.columns:
+            if "mana_cost" in self.df.columns:
+                self.df["mana_value"] = self.df["mana_cost"]
+            else:
+                self.df["mana_value"] = 0
+        if "appearances" not in self.df.columns:
+            self.df["appearances"] = 0
+        self.df["appearances"] = self.df["appearances"].fillna(0)
+        self.df["log_appearances"] = np.log(self.df["appearances"].astype(float) + 1)
+        num_cols = ["mana_value", "power", "toughness", "appearances", "log_appearances"]
+        self.num_cols = num_cols
+        self.df[num_cols] = (
+            self.df[num_cols]
+            .apply(pd.to_numeric, errors="coerce")
+            .fillna(0)
+        )
+        self.means = self.df[num_cols].mean()
+        self.stds = self.df[num_cols].std().replace(0, 1)
+        normed = (self.df[num_cols] - self.means) / self.stds
 
         # Categorical features to one-hot encode
-        cat_cols = ["rarity", "type_line"]
+        cat_cols = ["rarity"]
         self.df[cat_cols] = self.df[cat_cols].fillna("unknown").astype(str)
         cat_maps = {
             col: {v: i for i, v in enumerate(sorted(self.df[col].unique()))}
             for col in cat_cols
         }
+        self.cat_maps = cat_maps
+        self.rarity_eye = {
+            col: torch.eye(len(cat_maps[col])) for col in cat_maps
+        }
         cat_feats = []
         for col in cat_cols:
             idxs = self.df[col].map(cat_maps[col]).astype(int).values
-            one_hot = torch.eye(len(cat_maps[col]))[idxs]
+            one_hot = self.rarity_eye[col][idxs]
             cat_feats.append(one_hot)
+
+        # Type line one-hot for major card types
+        self.type_categories = [
+            "Creature",
+            "Artifact",
+            "Enchantment",
+            "Planeswalker",
+            "Land",
+            "Instant",
+            "Sorcery",
+        ]
+        type_features = []
+        for tl in self.df["type_line"].fillna("").astype(str):
+            type_features.append([1.0 if t in tl else 0.0 for t in self.type_categories])
+        type_tensor = torch.tensor(type_features, dtype=torch.float32)
+
+        # Color flags W,U,B,R,G plus Colorless(C)
+        self.color_letters = ["W", "U", "B", "R", "G"]
+        color_feats = []
+        for cstr in self.df["colors"].fillna("").astype(str):
+            letters = set(cstr)
+            flags = [1.0 if l in letters else 0.0 for l in self.color_letters]
+            if letters:
+                flags.append(1.0 if "C" in letters else 0.0)
+            else:
+                flags.append(1.0)
+            color_feats.append(flags)
+        color_tensor = torch.tensor(color_feats, dtype=torch.float32)
+
+        # Mana curve buckets
+        cmc = self.df["mana_value"].fillna(0).astype(float)
+        cmc_tensor = torch.stack(
+            [
+                torch.tensor((cmc <= 1).astype(float)),
+                torch.tensor(((cmc >= 2) & (cmc <= 3)).astype(float)),
+                torch.tensor((cmc >= 4).astype(float)),
+            ],
+            dim=1,
+        )
 
         # Combine all structured features into a single tensor
         numeric_tensor = torch.tensor(normed.values, dtype=torch.float32)
         categorical_tensor = torch.cat(cat_feats, dim=1).float()
-        self.features = torch.cat([numeric_tensor, categorical_tensor], dim=1)
+        self.features = torch.cat(
+            [numeric_tensor, categorical_tensor, type_tensor, color_tensor, cmc_tensor],
+            dim=1,
+        )
+        self.feature_dim = self.features.shape[1]
 
         # Regression targets
         self.targets = torch.tensor(
@@ -82,6 +144,44 @@ class CardDataset(Dataset):
         feats = self.features[idx]
         target = self.targets[idx]
         return text, feats, target
+
+    # ------------------------------------------------------------------
+    def vectorize_row(self, row: pd.Series) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Vectorize a single row using the dataset's preprocessing."""
+        row = row.fillna(0)
+        if "mana_value" not in row and "mana_cost" in row:
+            row["mana_value"] = row["mana_cost"]
+        row["appearances"] = row.get("appearances", 0)
+        row["log_appearances"] = np.log(float(row["appearances"]) + 1)
+        numeric = (row[self.num_cols] - self.means) / self.stds
+        numeric_tensor = torch.tensor(numeric.values, dtype=torch.float32)
+
+        # rarity
+        rarity = row.get("rarity", "unknown")
+        idx = self.cat_maps["rarity"].get(rarity, 0)
+        rarity_tensor = self.rarity_eye["rarity"][idx]
+
+        # type line features
+        tl = str(row.get("type_line", ""))
+        type_tensor = torch.tensor([1.0 if t in tl else 0.0 for t in self.type_categories], dtype=torch.float32)
+
+        # color flags
+        letters = set(str(row.get("colors", "")))
+        flags = [1.0 if l in letters else 0.0 for l in self.color_letters]
+        if letters:
+            flags.append(1.0 if "C" in letters else 0.0)
+        else:
+            flags.append(1.0)
+        color_tensor = torch.tensor(flags, dtype=torch.float32)
+
+        cmc = float(row.get("mana_value", 0))
+        cmc_tensor = torch.tensor([cmc <= 1, 2 <= cmc <= 3, cmc >= 4], dtype=torch.float32)
+
+        feats = torch.cat([numeric_tensor, rarity_tensor.float(), type_tensor, color_tensor, cmc_tensor])
+
+        text_tokens = torch.tensor(_encode(str(row.get("oracle_text", "")), self.vocab), dtype=torch.long)
+
+        return text_tokens, feats
 
 
 def _pad_collate(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
