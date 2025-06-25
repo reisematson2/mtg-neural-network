@@ -67,10 +67,12 @@ def main():
     plt.savefig("pred_vs_actual.png")
 
     abs_err = np.abs(preds - labels)
-    top_idx = np.argsort(abs_err)[-10:][::-1]
+    top_idx = np.argsort(-abs_err)[:10]
     df = dataset.df
+    # Fix: Only print 'name' if it exists in the DataFrame
+    cols = [c for c in ["name", "strength_score"] if c in df.columns]
     print("Top 10 prediction errors:")
-    print(df.iloc[top_idx][["name", "strength_score"]].assign(predicted=preds[top_idx], error=abs_err[top_idx]))
+    print(df.iloc[top_idx][cols].assign(predicted=preds[top_idx], error=abs_err[top_idx]))
 
 
 if __name__ == "__main__":
