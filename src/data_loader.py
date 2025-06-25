@@ -46,7 +46,18 @@ class CardDataset(Dataset):
 
         # Numeric features to normalize
         num_cols = ["mana_value", "power", "toughness", "appearances"]
-        self.df[num_cols] = self.df[num_cols].fillna(0)
+        # Ensure all required numeric columns exist
+        for col in num_cols:
+            if col not in self.df.columns:
+                self.df[col] = 0
+
+        # Fill missing values and robustly enforce float dtype for numeric columns
+        for col in num_cols:
+            # Coerce non-numeric values to NaN, then fill with 0 and convert to float
+            self.df[col] = pd.to_numeric(self.df[col], errors='coerce').fillna(0).astype(float)
+            if (self.df[col] == 0).sum() > 0 and self.df[col].isna().sum() > 0:
+                print(f"Warning: Non-numeric values found in column '{col}' and coerced to 0.")
+
         means = self.df[num_cols].mean()
         stds = self.df[num_cols].std().replace(0, 1)
         normed = (self.df[num_cols] - means) / stds
@@ -69,9 +80,10 @@ class CardDataset(Dataset):
         categorical_tensor = torch.cat(cat_feats, dim=1).float()
         self.features = torch.cat([numeric_tensor, categorical_tensor], dim=1)
 
-        # Regression targets
+        # Ensure regression targets are float
+        self.df['strength_score'] = pd.to_numeric(self.df['strength_score'], errors='coerce').fillna(0).astype(float)
         self.targets = torch.tensor(
-            self.df["strength_score"].fillna(0).values, dtype=torch.float32
+            self.df["strength_score"].values, dtype=torch.float32
         ).unsqueeze(1)
 
     def __len__(self) -> int:  # pragma: no cover - trivial

@@ -47,10 +47,11 @@ def main() -> None:
     run_step([python_exec, "src/merge_and_impute.py"],
              "Merging card data and imputing stats... ")
 
-    run_step([python_exec, "src/train.py", "--config", args.config],
+    # Run train.py and evaluate.py as modules so absolute imports work
+    run_step([python_exec, "-m", "src.train", "--config", args.config],
              "Training model... ")
 
-    run_step([python_exec, "src/evaluate.py", "--config", args.config],
+    run_step([python_exec, "-m", "src.evaluate", "--config", args.config],
              "Evaluating model... ")
 
 

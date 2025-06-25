@@ -26,20 +26,44 @@ def main() -> None:
             f"{STATS_PATH} not found. Run compute_win_rates.py first"
         )
     stats = pd.read_csv(STATS_PATH)
+    # Ensure stats also uses 'card_name' for merging
+    if "card_name" not in stats.columns and "name" in stats.columns:
+        stats = stats.rename(columns={"name": "card_name"})
+
+    # Drop 'wins' and 'appearances' from cards if they exist to avoid merge conflicts
+    for col in ["wins", "appearances"]:
+        if col in cards.columns:
+            cards = cards.drop(columns=[col])
+
+    # Drop columns from cards that will be duplicated by the merge (except 'card_name')
+    duplicate_cols = [col for col in stats.columns if col != "card_name" and col in cards.columns]
+    if duplicate_cols:
+        cards = cards.drop(columns=duplicate_cols)
 
     # Perform a left join so that all TDM cards remain even if unseen in tournaments
     merged = cards.merge(stats, on="card_name", how="left")
+
+    # Ensure 'appearances' column exists after merge
+    if "appearances" not in merged.columns:
+        merged["appearances"] = 0
+    # Ensure 'wins' column exists after merge
+    if "wins" not in merged.columns:
+        merged["wins"] = 0
 
     # Determine whether each card was ever seen in the tournament stats
     merged["seen"] = merged["appearances"].notna()
 
     # Compute the overall mean win rate weighted by appearances
-    total_wins = stats["wins"].sum()
-    total_games = stats["appearances"].sum()
+    total_wins = stats["wins"].sum() if "wins" in stats.columns else 0
+    total_games = stats["appearances"].sum() if "appearances" in stats.columns else 0
     mean_wr = total_wins / total_games if total_games else 0.0
 
     # Fill missing numeric stats for unseen cards
-    merged[["wins", "appearances"]] = merged[["wins", "appearances"]].fillna(0)
+    for col in ["wins", "appearances"]:
+        if col in merged.columns:
+            merged[col] = merged[col].fillna(0)
+        else:
+            merged[col] = 0
 
     # Wilson lower bound of the win proportion gives a conservative estimate
     # especially for cards with few appearances. This helps avoid overrating
@@ -57,6 +81,10 @@ def main() -> None:
 
     # Optional feature for models: flag cards never seen in a tournament
     merged["never_seen_flag"] = (~merged["seen"]).astype(int)
+
+    # Ensure the output uses 'mana_value' as the column name for numeric features
+    if "mana_cost" in merged.columns:
+        merged = merged.rename(columns={"mana_cost": "mana_value"})
 
     # Save the updated dataset
     merged.to_csv(OUTPUT_PATH, index=False)
