@@ -34,10 +34,15 @@ python src/compute_win_rates.py     # derive win rates from real matches
 python src/merge_and_impute.py      # merge win rates into card_data.csv
 python src/train.py                 # train the model using config.yaml
 python src/evaluate.py              # evaluate the checkpoint
+python src/error_analysis.py        # inspect largest prediction errors
+uvicorn src.api:app --reload        # launch the prediction API
 ```
 The training script saves its best weights to `checkpoints/best_model.pt` and
 `evaluate.py` will report basic metrics against the full dataset. Parameters can
 be adjusted in `config.yaml` or overridden on the command line.
+
+Once the API is running, open `ui/index.html` in a browser to submit a card name
+and view its predicted strength score.
 
 ## Next Steps
 

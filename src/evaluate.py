@@ -14,6 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate trained model")
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--config", type=str, default="config.yaml")
+    parser.add_argument("--output", type=str, default="predictions.csv", help="Path to save per-card predictions")
     args = parser.parse_args()
 
     config = {}
@@ -74,6 +75,18 @@ def main():
         else:
             card_name = f"index {i}"
         print(f"{card_name}: actual={labels[i]:.3f}, predicted={preds[i]:.3f}, error={abs_err[i]:.3f}")
+
+    # Save per-card predictions for error analysis
+    if name_col:
+        out_df = df[[name_col, "strength_score"]].copy()
+    else:
+        out_df = df.copy()
+        out_df.insert(0, "row", range(len(out_df)))
+        name_col = "row"
+    out_df["predicted"] = preds
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    out_df.to_csv(args.output, index=False)
+    print(f"Wrote predictions to {args.output}")
 
 
 if __name__ == "__main__":
