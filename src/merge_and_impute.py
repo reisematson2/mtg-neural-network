@@ -20,6 +20,10 @@ def main() -> None:
         cards = cards.rename(columns={"name": "card_name"})
 
     # Load real tournament statistics with columns card_name, appearances, wins, win_rate
+    if not STATS_PATH.is_file():
+        raise FileNotFoundError(
+            f"{STATS_PATH} not found. Run compute_win_rates.py first"
+        )
     stats = pd.read_csv(STATS_PATH)
 
     # Perform a left join so that all TDM cards remain even if unseen in tournaments

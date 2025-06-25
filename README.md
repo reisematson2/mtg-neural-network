@@ -13,10 +13,11 @@ This project explores using a neural network to evaluate **Magic: The Gathering*
 
 `src/ingest_cards.py` downloads card details from the Scryfall API and saves
 them to `card_data.csv` with a placeholder `strength_score`.
-`src/merge_and_impute.py` then merges real win-rate statistics from
-`data/card_win_rates.csv`, imputes unseen cards with the mean win rate, and
-overwrites the `strength_score` column. The merged data is written back to
-`card_data.csv`.
+`src/compute_win_rates.py` parses `data/test_matches.json` and generates
+`data/card_win_rates.csv`.
+`src/merge_and_impute.py` then merges those win-rate statistics, imputes unseen
+cards with the mean win rate, and overwrites the `strength_score` column. The
+merged data is written back to `card_data.csv`.
 `src/train.py` trains the neural network on this dataset and stores the best
 model checkpoint in the `checkpoints/` folder. `src/evaluate.py` loads the
 saved model and reports prediction metrics on the full dataset.
@@ -26,6 +27,7 @@ saved model and reports prediction metrics on the full dataset.
 ```bash
 pip install -r requirements.txt
 python src/ingest_cards.py          # fetch real card data
+python src/compute_win_rates.py     # derive win rates from test data
 python src/merge_and_impute.py      # merge win rates into card_data.csv
 python src/train.py                 # train the model using config.yaml
 python src/evaluate.py              # evaluate the checkpoint
