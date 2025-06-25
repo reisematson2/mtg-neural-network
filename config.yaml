@@ -5,7 +5,7 @@ paths:
   checkpoint_dir: checkpoints
 
 training:
-  epochs: 10
+  epochs: 7
   batch_size: 16
   learning_rate: 0.001
   seed: 42
