@@ -31,28 +31,24 @@ RARITY_BASE = {
 }
 
 
-def fetch_cards() -> List[Dict]:
-    """Fetch all cards from the configured set code.
-
-    The function follows pagination via ``next_page`` until the set's
-    cards are exhausted.
-    """
-    url = f"{SCRYFALL_API_URL}?q=set%3A{SET_CODE}"
-    cards: List[Dict] = []
-    while url:
-        resp = requests.get(url)
-        # Handle the case where the set code does not exist
-        if resp.status_code == 404:
-            print(f"Set {SET_CODE} not found on Scryfall")
-            break
-        resp.raise_for_status()
-        data = resp.json()
-        cards.extend(data["data"])
-        if not data.get("has_more"):
-            break
-        url = data["next_page"]
-        time.sleep(0.1)
-    return cards
+def fetch_cards() -> list[dict]:
+    """Fetch all current standard-legal cards from Scryfall bulk data (oracle_cards)."""
+    bulk_url = "https://api.scryfall.com/bulk-data"
+    resp = requests.get(bulk_url)
+    resp.raise_for_status()
+    bulk_data = resp.json()["data"]
+    # Use 'oracle_cards' for up-to-date, unique cards
+    oracle_entry = next((b for b in bulk_data if b["type"] == "oracle_cards"), None)
+    if not oracle_entry:
+        raise RuntimeError("Could not find oracle_cards bulk data on Scryfall")
+    print(f"Downloading oracle cards from {oracle_entry['download_uri']}")
+    cards_resp = requests.get(oracle_entry["download_uri"])
+    cards_resp.raise_for_status()
+    all_cards = cards_resp.json()
+    # Filter for standard-legal cards
+    std_cards = [c for c in all_cards if c.get("legalities", {}).get("standard") == "legal"]
+    print(f"Fetched {len(std_cards)} standard-legal cards from oracle_cards bulk data.")
+    return std_cards
 
 
 def cards_to_dataframe(cards: List[Dict]) -> pd.DataFrame:
