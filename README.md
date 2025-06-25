@@ -21,8 +21,11 @@ merged data is written back to `card_data.csv`.
 `src/train.py` trains the neural network on this dataset and stores the best
 model checkpoint in the `checkpoints/` folder. Data loading and model
 definitions live in `src/data_loader.py` and `src/model.py` so they can be
-reused across scripts. `src/evaluate.py` loads the saved model and reports
-prediction metrics on the full dataset.
+reused across scripts. `src/evaluate.py` loads the saved model, writes
+`predictions.csv`, and reports prediction metrics on the full dataset.
+`src/error_analysis.py` inspects those predictions and stores the largest
+over/under-estimates in `logs/top_errors.csv`. A small FastAPI service in
+`src/api.py` exposes a `/predict` endpoint used by the web UI under `ui/`.
 
 ## Running
 

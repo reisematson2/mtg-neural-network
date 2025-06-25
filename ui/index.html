@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MTG Card Strength</title>
+</head>
+<body>
+  <h3>Card Strength Lookup</h3>
+  <input type="text" id="cardName" placeholder="Card name" />
+  <button id="btn">Get Strength</button>
+  <div id="result"></div>
+<script>
+document.getElementById('btn').onclick = async () => {
+  const name = document.getElementById('cardName').value;
+  const res = await fetch('http://localhost:8000/predict', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({card_name: name})
+  });
+  const data = await res.json();
+  document.getElementById('result').innerText = 'Strength score: ' + data.strength_score;
+};
+</script>
+</body>
+</html>

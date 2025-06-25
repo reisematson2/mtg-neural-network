@@ -27,12 +27,16 @@ class CardStrengthPredictor(nn.Module):
         # Linear projection for structured numeric/categorical features
         self.feature_proj = nn.Linear(feature_dim, dense_units)
 
-        # Final regression network
+        # Final regression network with an extra hidden layer
         self.regressor = nn.Sequential(
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(lstm_dim + dense_units, dense_units),
             nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(dense_units, dense_units),
+            nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(dense_units, 1),
         )
 

@@ -14,3 +14,4 @@ model:
   embed_dim: 128
   lstm_dim: 32
   hidden_dim: 64
+  dropout_rate: 0.1
