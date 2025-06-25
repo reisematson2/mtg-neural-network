@@ -5,12 +5,14 @@ paths:
   checkpoint_dir: checkpoints
 
 training:
-  epochs: 5
+  epochs: 10
   batch_size: 16
   learning_rate: 0.001
   seed: 42
+  log_interval: 10
 
 model:
   embed_dim: 128
   lstm_dim: 32
   hidden_dim: 64
+  dropout_rate: 0.2
