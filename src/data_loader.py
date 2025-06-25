@@ -57,10 +57,13 @@ class CardDataset(Dataset):
         self.df["appearances"] = pd.to_numeric(
             self.df["appearances"], errors="coerce"
         ).fillna(0).astype(float)
+        # Pre-compute max appearances to avoid scaling each time
+        self.max_appearances = float(self.df["appearances"].max())
         # Binary flag if the card has been seen in tournament data
         self.df["seen_flag"] = (self.df["appearances"] > 0).astype(int)
-        # Log transform of appearances replaces the raw count feature
+        # Log transform used for scaled feature
         self.df["log_appearances"] = np.log1p(self.df["appearances"]).astype(float)
+        # We add numeric and log-scaled appearances so that the model knows the sample size behind each label.
         num_cols.append("log_appearances")
 
         # Ensure power and toughness columns exist for later parsing
@@ -171,8 +174,27 @@ class CardDataset(Dataset):
         # Combine structured features
         numeric_tensor = torch.tensor(normed.values, dtype=torch.float32)
         seen_tensor = torch.tensor(self.df["seen_flag"].values, dtype=torch.float32).unsqueeze(1)
+        app_tensor = torch.tensor(
+            (self.df["appearances"] / max(self.max_appearances, 1)).values,
+            dtype=torch.float32,
+        ).unsqueeze(1)
+        log_app_tensor = torch.tensor(
+            (self.df["log_appearances"] / np.log1p(max(self.max_appearances, 1))).values,
+            dtype=torch.float32,
+        ).unsqueeze(1)
         self.features = torch.cat(
-            [numeric_tensor, seen_tensor, pt_tensor, rarity_oh, type_flags, color_flags, cmc_flags, mechanic_flags],
+            [
+                numeric_tensor,
+                seen_tensor,
+                app_tensor,
+                log_app_tensor,
+                pt_tensor,
+                rarity_oh,
+                type_flags,
+                color_flags,
+                cmc_flags,
+                mechanic_flags,
+            ],
             dim=1,
         )
 
@@ -214,6 +236,8 @@ class CardDataset(Dataset):
         seen_flag = float(appearances > 0)
         num_vec = [(data[c] - self.means[c]) / self.stds[c] for c in self.means.index]
         num_tensor = torch.tensor(num_vec, dtype=torch.float32)
+        app_scaled = appearances / max(self.max_appearances, 1)
+        log_app_scaled = np.log1p(appearances) / np.log1p(max(self.max_appearances, 1))
 
         # Attempt to parse numeric power/toughness; catch formulas like '*' or 'X+1'
         try:
@@ -271,8 +295,21 @@ class CardDataset(Dataset):
         cmc_tensor = torch.tensor(cmc_vals, dtype=torch.float32)
 
         seen_tensor = torch.tensor([seen_flag], dtype=torch.float32)
+        app_tensor = torch.tensor([app_scaled], dtype=torch.float32)
+        log_app_tensor = torch.tensor([log_app_scaled], dtype=torch.float32)
         feat = torch.cat(
-            [num_tensor, seen_tensor, pt_vec, rarity_tensor, type_tensor, color_tensor, cmc_tensor, mech_tensor]
+            [
+                num_tensor,
+                seen_tensor,
+                app_tensor,
+                log_app_tensor,
+                pt_vec,
+                rarity_tensor,
+                type_tensor,
+                color_tensor,
+                cmc_tensor,
+                mech_tensor,
+            ]
         )
         return tokens, feat
 
