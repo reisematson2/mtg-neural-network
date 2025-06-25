@@ -2,7 +2,8 @@
 
 The script downloads match results for multiple rounds and Standard decklists
 from Magic.gg, then merges them together so each match record includes the two
-players' mainboard lists. The aggregated records are written to JSON.
+players' mainboard lists. Decklist URLs ending in "A-C" will automatically
+expand to fetch all six index pages. The aggregated records are written to JSON.
 
 Network requests may fail or pages may not have the expected structure, so the
 implementation includes basic error handling and liberal parsing.
@@ -15,6 +16,9 @@ import json
 import re
 from pathlib import Path
 from typing import Dict, Iterable, List
+
+# Known decklist page suffixes used by Magic.gg
+DECKLIST_RANGES = ["a-c", "d-g", "h-k", "l-n", "o-s", "t-z"]
 
 import requests
 from bs4 import BeautifulSoup
@@ -50,6 +54,25 @@ def parse_round_from_url(url: str) -> str:
     """Try to infer the round label from the URL."""
     m = re.search(r"round-(\d+)", url)
     return m.group(1) if m else url
+
+
+def expand_decklist_urls(urls: Iterable[str]) -> List[str]:
+    """Expand a base decklist index URL into all expected pages.
+
+    If a URL ends with one of the known ranges (A-C, D-G, etc.) only that first
+    page may be specified. The function will then generate URLs for all six
+    ranges. If the URL does not match this pattern it is returned unchanged.
+    """
+    expanded: List[str] = []
+    pattern = re.compile(r"-(a-c|d-g|h-k|l-n|o-s|t-z)$", re.IGNORECASE)
+    for url in urls:
+        m = pattern.search(url)
+        if m:
+            prefix = url[: m.start()]
+            expanded.extend(f"{prefix}-{rng}" for rng in DECKLIST_RANGES)
+        else:
+            expanded.append(url)
+    return expanded
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +119,7 @@ def parse_result_page(html: str, url: str) -> List[Dict]:
 # Decklist parsing
 # ---------------------------------------------------------------------------
 
-def parse_decklist_index(html: str, base_url: str) -> Dict[str, List[str]]:
+def parse_decklist_index(html: str) -> Dict[str, List[str]]:
     """Return a mapping of player name to mainboard list from a decklist index."""
     soup = BeautifulSoup(html, "html.parser")
     decklists: Dict[str, List[str]] = {}
@@ -140,6 +163,7 @@ def main(argv: Iterable[str] | None = None) -> None:
 
     result_urls = [u.strip() for u in args.result_urls.split(",") if u.strip()]
     decklist_urls = [u.strip() for u in args.decklist_urls.split(",") if u.strip()]
+    decklist_urls = expand_decklist_urls(decklist_urls)
 
     all_matches: List[Dict] = []
     for url in result_urls:
@@ -153,7 +177,7 @@ def main(argv: Iterable[str] | None = None) -> None:
         html = fetch_html(index_url)
         if not html:
             continue
-        decklists.update(parse_decklist_index(html, index_url))
+        decklists.update(parse_decklist_index(html))
 
     for match in all_matches:
         a_key = normalize_name(match["player_a"])
