@@ -48,11 +48,17 @@ class CardDataset(Dataset):
         # -------------------------
         # Structured feature engineering
         # -------------------------
-        # Base numeric columns
-        num_cols = ["mana_value", "power", "toughness", "appearances"]
+        # Base numeric columns used for normalization. We keep power/toughness
+        # separate so formulas like "*" or "X+1" don't skew the statistics.
+        num_cols = ["mana_value", "appearances"]
         for col in num_cols:
             if col not in self.df.columns:
                 self.df[col] = 0.0
+
+        # Ensure power and toughness columns exist for later parsing
+        for col in ["power", "toughness"]:
+            if col not in self.df.columns:
+                self.df[col] = np.nan
 
         # Fill and coerce numerics
         for col in num_cols:
@@ -70,7 +76,10 @@ class CardDataset(Dataset):
         # ----- categorical: rarity -----
         self.df["rarity"] = self.df["rarity"].fillna("unknown").astype(str)
         self.rarity_map = {v: i for i, v in enumerate(sorted(self.df["rarity"].unique()))}
-        rarity_idxs = self.df["rarity"].map(self.rarity_map).astype(int).values
+        rarity_idxs = torch.tensor(
+            self.df["rarity"].map(self.rarity_map).astype(int).values,
+            dtype=torch.long,
+        )
         rarity_oh = torch.eye(len(self.rarity_map))[rarity_idxs]
 
         # ----- type line specific flags -----
@@ -92,11 +101,42 @@ class CardDataset(Dataset):
         self.df["cmc_0_1"] = (self.df["mana_value"] <= 1).astype(int)
         self.df["cmc_2_3"] = ((self.df["mana_value"] >= 2) & (self.df["mana_value"] <= 3)).astype(int)
         self.df["cmc_4_plus"] = (self.df["mana_value"] >= 4).astype(int)
-        cmc_flags = torch.tensor(self.df[["cmc_0_1", "cmc_2_3", "cmc_4_plus"]].values, dtype=torch.float32)
+        cmc_flags = torch.tensor(
+            self.df[["cmc_0_1", "cmc_2_3", "cmc_4_plus"]].values,
+            dtype=torch.float32,
+        )
+
+        # ----- power/toughness parsing -----
+        def parse_pt(row: pd.Series) -> Tuple[float, float, int]:
+            """Return numeric P/T and a flag for variable values."""
+            try:
+                p = float(row["power"])
+                t = float(row["toughness"])
+                var = 0
+            except (ValueError, TypeError):
+                # Non-numeric values like "*" or "X+1" are treated as 0
+                p = 0.0
+                t = 0.0
+                var = 1
+            return pd.Series({"p": p / 10.0, "t": t / 10.0, "var": var})
+
+        pt_df = self.df.apply(parse_pt, axis=1)
+        self.df = pd.concat([self.df, pt_df], axis=1)
+
+        # is_creature flag derived from type_line
+        self.df["is_creature"] = self.df["type_line"].str.contains(
+            "Creature", na=False
+        ).astype(int)
+        pt_tensor = torch.tensor(
+            self.df[["p", "t", "var", "is_creature"]].values, dtype=torch.float32
+        )
 
         # Combine structured features
         numeric_tensor = torch.tensor(normed.values, dtype=torch.float32)
-        self.features = torch.cat([numeric_tensor, rarity_oh, type_flags, color_flags, cmc_flags], dim=1)
+        self.features = torch.cat(
+            [numeric_tensor, pt_tensor, rarity_oh, type_flags, color_flags, cmc_flags],
+            dim=1,
+        )
 
         self.feature_dim = self.features.shape[1]
 
@@ -124,13 +164,27 @@ class CardDataset(Dataset):
         # numeric
         data = {
             "mana_value": float(row.get("mana_value", 0)),
-            "power": float(row.get("power", 0)),
-            "toughness": float(row.get("toughness", 0)),
             "appearances": float(row.get("appearances", 0)),
         }
         data["log_appearances"] = np.log1p(data["appearances"])
         num_vec = [(data[c] - self.means[c]) / self.stds[c] for c in self.means.index]
         num_tensor = torch.tensor(num_vec, dtype=torch.float32)
+
+        # Attempt to parse numeric power/toughness; catch formulas like '*' or 'X+1'
+        try:
+            p = float(row.get("power"))
+            t = float(row.get("toughness"))
+            is_variable_pt = 0
+        except (ValueError, TypeError):
+            # Non-numeric P/T: mark as variable and fill with zero
+            p = 0.0
+            t = 0.0
+            is_variable_pt = 1
+        is_creature = 1 if "Creature" in str(row.get("type_line", "")) else 0
+        pt_vec = torch.tensor(
+            [p / 10.0, t / 10.0, float(is_variable_pt), float(is_creature)],
+            dtype=torch.float32,
+        )
 
         # rarity one-hot
         rarity = str(row.get("rarity", "unknown"))
@@ -153,7 +207,7 @@ class CardDataset(Dataset):
         cmc_vals = [int(mana <= 1), int(2 <= mana <= 3), int(mana >= 4)]
         cmc_tensor = torch.tensor(cmc_vals, dtype=torch.float32)
 
-        feat = torch.cat([num_tensor, rarity_tensor, type_tensor, color_tensor, cmc_tensor])
+        feat = torch.cat([num_tensor, pt_vec, rarity_tensor, type_tensor, color_tensor, cmc_tensor])
         return tokens, feat
 
 
