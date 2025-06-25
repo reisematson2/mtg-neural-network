@@ -1,6 +1,7 @@
 """Merge tournament win rates with card features and impute missing data."""
 
 import pandas as pd
+import numpy as np
 from pathlib import Path
 
 
@@ -32,17 +33,27 @@ def main() -> None:
     # Determine whether each card was ever seen in the tournament stats
     merged["seen"] = merged["appearances"].notna()
 
-    # Compute the global mean win rate from cards that have data
-    mean_wr = stats["win_rate"].mean()
+    # Compute the overall mean win rate weighted by appearances
+    total_wins = stats["wins"].sum()
+    total_games = stats["appearances"].sum()
+    mean_wr = total_wins / total_games if total_games else 0.0
 
-    # Impute unseen cards with the mean win rate
-    merged.loc[~merged["seen"], "win_rate"] = mean_wr
+    # Fill missing numeric stats for unseen cards
+    merged[["wins", "appearances"]] = merged[["wins", "appearances"]].fillna(0)
 
-    # Normalize win_rate to the 0-1 range and store it as strength_score
-    win = merged["win_rate"].astype(float)
-    if win.max() > 1:
-        win = win / 100.0
-    merged["strength_score"] = win.clip(0, 1)
+    # Wilson lower bound of the win proportion gives a conservative estimate
+    # especially for cards with few appearances. This helps avoid overrating
+    # cards that happened to win a small sample of games.
+    z = 1.96  # 95% confidence interval
+    n = merged["appearances"].astype(float)
+    phat = merged["wins"].astype(float) / n.replace(0, np.nan)
+    wilson = (
+        phat + z * z / (2 * n)
+        - z * np.sqrt((phat * (1 - phat) + z * z / (4 * n)) / n)
+    ) / (1 + z * z / n)
+
+    merged["strength_score"] = wilson.fillna(mean_wr).clip(0, 1)
+    merged["log_appearances"] = np.log1p(n)
 
     # Optional feature for models: flag cards never seen in a tournament
     merged["never_seen_flag"] = (~merged["seen"]).astype(int)
