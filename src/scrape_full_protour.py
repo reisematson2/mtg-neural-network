@@ -143,15 +143,27 @@ def main() -> None:
         match["player_b_deck"] = _deck_cache.get(match["player_b"])
 
     # Quick verification that every deck has exactly 60 cards
+    missing_players = set()
+    valid_matches = []
     for rec in matches:
-        assert len(rec["player_a_deck"]) == 60
-        assert len(rec["player_b_deck"]) == 60
+        a_deck = rec.get("player_a_deck")
+        b_deck = rec.get("player_b_deck")
+        if not (isinstance(a_deck, list) and len(a_deck) == 60):
+            print(f"Warning: {rec['player_a']}'s deck is missing or incomplete.")
+            missing_players.add(rec['player_a'])
+            continue
+        if not (isinstance(b_deck, list) and len(b_deck) == 60):
+            print(f"Warning: {rec['player_b']}'s deck is missing or incomplete.")
+            missing_players.add(rec['player_b'])
+            continue
+        valid_matches.append(rec)
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with OUTPUT_PATH.open("w", encoding="utf-8") as f:
-        json.dump(matches, f, indent=2)
+        json.dump(valid_matches, f, indent=2)
 
-    print(f"Wrote {len(matches)} matches with decks to {OUTPUT_PATH}")
+    print(f"Wrote {len(valid_matches)} matches with decks to {OUTPUT_PATH}")
+    print(f"Total unique players with missing or incomplete decks: {len(missing_players)}")
 
 
 if __name__ == "__main__":
