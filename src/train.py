@@ -84,6 +84,15 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Diagnostic: Check for NaNs/Infs in features and targets
+    feats = dataset.features
+    targets = dataset.targets
+    print(f"Feature shape: {feats.shape}, Target shape: {targets.shape}")
+    print(f"Any NaN in features? {torch.isnan(feats).any().item()}")
+    print(f"Any Inf in features? {torch.isinf(feats).any().item()}")
+    print(f"Any NaN in targets? {torch.isnan(targets).any().item()}")
+    print(f"Any Inf in targets? {torch.isinf(targets).any().item()}")
+
     val_loss, train_losses, val_losses = train_model(
         train_loader,
         val_loader,

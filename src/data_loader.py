@@ -123,6 +123,15 @@ class CardDataset(Dataset):
         pt_df = self.df.apply(parse_pt, axis=1)
         self.df = pd.concat([self.df, pt_df], axis=1)
 
+        # Fill NaNs in critical columns before feature construction
+        self.df["power"] = self.df["power"].fillna(0)
+        self.df["toughness"] = self.df["toughness"].fillna(0)
+        self.df["oracle_text"] = self.df["oracle_text"].fillna("")
+        # After pt_df is added, fill NaNs in 'p' and 't'
+        # (This must be after pt_df is created and added)
+        self.df["p"] = self.df["p"].fillna(0)
+        self.df["t"] = self.df["t"].fillna(0)
+
         # is_creature flag derived from type_line
         self.df["is_creature"] = self.df["type_line"].str.contains(
             "Creature", na=False
@@ -147,6 +156,12 @@ class CardDataset(Dataset):
         self.targets = torch.tensor(
             self.df["strength_score"].values, dtype=torch.float32
         ).unsqueeze(1)
+
+        # Diagnostic: Print columns with NaNs
+        nan_cols = self.df.columns[self.df.isna().any()].tolist()
+        if nan_cols:
+            print(f"[CardDataset] Columns with NaNs: {nan_cols}")
+            print(self.df[nan_cols].isna().sum())
 
     def __len__(self) -> int:  # pragma: no cover - trivial
         return len(self.df)
