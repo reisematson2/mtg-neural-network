@@ -20,7 +20,7 @@ import requests
 
 SCRYFALL_API_URL = "https://api.scryfall.com/cards/search"
 # Ingest only cards from the Tarkir – Dragonstorm set
-SET_CODE = "TDS"
+SET_CODE = "TDM"
 
 # Map rarities to a numeric baseline strength score
 RARITY_BASE = {
@@ -87,12 +87,19 @@ def cards_to_dataframe(cards: List[Dict]) -> pd.DataFrame:
     return df
 
 
+def safe_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def compute_strength_score(df: pd.DataFrame) -> pd.DataFrame:
     def score_row(row: pd.Series) -> float:
         rarity_bonus = RARITY_BASE.get(str(row["rarity"]).lower(), 0.3)
-        power = float(row.get("power") or 0)
-        toughness = float(row.get("toughness") or 0)
-        cmc = float(row.get("mana_cost") or 1)
+        power = safe_float(row.get("power"))
+        toughness = safe_float(row.get("toughness"))
+        cmc = safe_float(row.get("mana_cost")) or 1
         body_efficiency = (power + toughness) / max(cmc, 1)
         return rarity_bonus + body_efficiency
 

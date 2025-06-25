@@ -19,14 +19,28 @@ def encode_text(text: str, vocab: Dict[str, int]) -> List[int]:
     return [vocab.get(tok, 0) for tok in tokenize(text)]
 
 
+def safe_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class CardDataset(Dataset):
     """PyTorch dataset for MTG card strength prediction."""
 
     def __init__(self, df: pd.DataFrame, vocab: Optional[Dict[str, int]] = None,
                  cat_maps: Optional[Dict[str, Dict[str, int]]] = None,
                  scaler: Optional[Dict[str, pd.Series]] = None):
-        self.df = df.reset_index(drop=True)
-        self.texts = self.df.get('oracle_text', '').fillna('').astype(str).tolist()
+        self.df = df.copy()
+        num_cols = ["mana_cost", "power", "toughness", "strength_score"]
+        # Clean non-numeric values
+        for col in ["power", "toughness"]:
+            self.df[col] = self.df[col].apply(safe_float)
+        self.df[num_cols] = self.df[num_cols].fillna(0).astype(float)
+
+        # Add this line to extract oracle_texts
+        self.texts = self.df["oracle_text"].fillna("").astype(str).tolist()
 
         # Build vocab from provided texts if not given
         self.vocab = vocab or build_vocab(self.texts)
