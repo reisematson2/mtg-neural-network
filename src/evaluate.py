@@ -59,10 +59,21 @@ def main():
     abs_err = np.abs(preds - labels)
     top_idx = np.argsort(-abs_err)[:10]
     df = dataset.df
-    # Fix: Only print 'name' if it exists in the DataFrame
-    cols = [c for c in ["name", "strength_score"] if c in df.columns]
+    # Always show the card name in the error output
+    if "card_name" in df.columns:
+        name_col = "card_name"
+    elif "name" in df.columns:
+        name_col = "name"
+    else:
+        name_col = None
+
     print("Top 10 prediction errors:")
-    print(df.iloc[top_idx][cols].assign(predicted=preds[top_idx], error=abs_err[top_idx]))
+    for i in top_idx:
+        if name_col:
+            card_name = df.iloc[i][name_col]
+        else:
+            card_name = f"index {i}"
+        print(f"{card_name}: actual={labels[i]:.3f}, predicted={preds[i]:.3f}, error={abs_err[i]:.3f}")
 
 
 if __name__ == "__main__":

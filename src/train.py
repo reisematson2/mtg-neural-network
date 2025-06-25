@@ -4,6 +4,7 @@ import yaml
 
 import torch
 from torch import nn
+import matplotlib.pyplot as plt  # For plotting loss curves
 
 from src.data_loader import load_train_val_split
 from src.model import CardStrengthPredictor
@@ -26,6 +27,11 @@ def train_model(train_loader, val_loader, vocab_size, feature_dim, config, devic
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     best_loss = float("inf")
     val_loss = float("inf")
+
+    # Initialize lists to store loss values for each epoch
+    train_losses = []
+    val_losses = []
+
     for epoch in range(epochs):
         model.train()
         for text, lengths, feats, labels in train_loader:
@@ -38,20 +44,25 @@ def train_model(train_loader, val_loader, vocab_size, feature_dim, config, devic
             optimizer.step()
 
         model.eval()
-        val_losses = []
+        val_losses_epoch = []
         with torch.no_grad():
             for text, lengths, feats, labels in val_loader:
                 text = text.to(device)
                 feats, labels = feats.to(device), labels.to(device)
                 preds = model(feats, text)
                 loss = loss_fn(preds, labels)
-                val_losses.append(loss.item())
-        val_loss = sum(val_losses) / len(val_losses)
+                val_losses_epoch.append(loss.item())
+        val_loss = sum(val_losses_epoch) / len(val_losses_epoch)
+
+        # After computing train_loss and val_loss each epoch, append to lists
+        train_losses.append(loss.item())
+        val_losses.append(val_loss)
+
         if val_loss < best_loss:
             best_loss = val_loss
             torch.save(model.state_dict(), ckpt_dir / "best_model.pt")
 
-    return val_loss
+    return val_loss, train_losses, val_losses
 
 
 def main():
@@ -73,7 +84,7 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    val_loss = train_model(
+    val_loss, train_losses, val_losses = train_model(
         train_loader,
         val_loader,
         len(dataset.vocab),
@@ -85,6 +96,19 @@ def main():
     )
     print(f"Validation loss: {val_loss:.4f}")
 
+    # After training, print the full loss curves
+    print("Final train losses:", train_losses)
+    print("Final val losses:  ", val_losses)
+
+    # Plot and save the loss curves using matplotlib
+    epochs = list(range(1, len(train_losses) + 1))
+    plt.plot(epochs, train_losses, label="Train Loss")
+    plt.plot(epochs, val_losses,   label="Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("loss_curve.png")
 
 
 if __name__ == "__main__":
