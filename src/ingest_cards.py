@@ -59,11 +59,15 @@ def cards_to_dataframe(cards: List[Dict]) -> pd.DataFrame:
     # Prepare rows for the DataFrame
     rows = []
     for card in cards:
+        type_line = card.get("type_line", "")
+        # Exclude Basic Land cards
+        if "Basic Land" in type_line:
+            continue
         rows.append(
             {
                 "name": card.get("name"),
                 "mana_cost": card.get("cmc"),
-                "type_line": card.get("type_line"),
+                "type_line": type_line,
                 "power": card.get("power"),
                 "toughness": card.get("toughness"),
                 "colors": ",".join(card.get("colors") or []),
