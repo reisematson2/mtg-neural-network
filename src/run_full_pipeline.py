@@ -33,22 +33,24 @@ def main() -> None:
     else:
         sys.exit(f"Config file not found: {config_path}")
 
+    python_exec = sys.executable  # Use the current Python interpreter
+
     if not args.skip_scrape:
-        run_step(["python", "src/scrape_protour_results.py"],
+        run_step([python_exec, "src/scrape_protour_results.py"],
                  "Scraping round results... ")
     else:
         print("Skipping scraping step.")
 
-    run_step(["python", "src/compute_win_rates.py"],
+    run_step([python_exec, "src/compute_win_rates.py"],
              "Computing card win rates... ")
 
-    run_step(["python", "src/merge_and_impute.py"],
+    run_step([python_exec, "src/merge_and_impute.py"],
              "Merging card data and imputing stats... ")
 
-    run_step(["python", "src/train.py", "--config", args.config],
+    run_step([python_exec, "src/train.py", "--config", args.config],
              "Training model... ")
 
-    run_step(["python", "src/evaluate.py", "--config", args.config],
+    run_step([python_exec, "src/evaluate.py", "--config", args.config],
              "Evaluating model... ")
 
 

@@ -96,7 +96,7 @@ def collate_fn(batch):
     padded_texts = torch.nn.utils.rnn.pad_sequence(
         [torch.tensor(t) for t in texts], batch_first=True
     )
-    struct_tensor = torch.tensor(structs, dtype=torch.float32)
+    struct_tensor = torch.tensor(np.array(structs), dtype=torch.float32)
     label_tensor = torch.tensor(labels, dtype=torch.float32).unsqueeze(1)
     return padded_texts, lengths, struct_tensor, label_tensor
 
