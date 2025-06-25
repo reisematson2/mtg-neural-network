@@ -21,7 +21,6 @@ def test_forward_pass():
         feature_dim=dataset.features.shape[1],
         config={
             "embed_dim": params["embed_dim"],
-            "lstm_dim": params["lstm_dim"],
             "hidden_dim": params["hidden_dim"],
             "dropout_rate": params.get("dropout_rate", 0.0),
         },

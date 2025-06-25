@@ -16,13 +16,13 @@ class CardStrengthPredictor(nn.Module):
         super().__init__()
 
         embed_dim = config.get("embed_dim", 32)
-        lstm_dim = config.get("lstm_dim", 32)
         dense_units = config.get("hidden_dim", 64)
         dropout = config.get("dropout_rate", 0.0)
 
-        # Text embedding followed by a single LSTM layer
+        # Text embedding followed by a small Transformer encoder
         self.embedding = nn.Embedding(vocab_size + 1, embed_dim, padding_idx=0)
-        self.lstm = nn.LSTM(embed_dim, lstm_dim, batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=4)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
 
         # Linear projection for structured numeric/categorical features
         self.feature_proj = nn.Linear(feature_dim, dense_units)
@@ -31,7 +31,7 @@ class CardStrengthPredictor(nn.Module):
         self.regressor = nn.Sequential(
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(lstm_dim + dense_units, dense_units),
+            nn.Linear(embed_dim + dense_units, dense_units),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(dense_units, dense_units),
@@ -42,10 +42,10 @@ class CardStrengthPredictor(nn.Module):
     def forward(self, features: torch.Tensor, text_tokens: torch.Tensor) -> torch.Tensor:
         """Return a strength score prediction for a batch of cards."""
 
-        # Text sequence to embedding vector using the last LSTM hidden state
-        embedded = self.embedding(text_tokens)
-        _, (hidden, _) = self.lstm(embedded)
-        text_vec = hidden[-1]
+        # Text sequence to embedding vector using a Transformer encoder
+        embedded = self.embedding(text_tokens)  # [batch, seq_len, embed_dim]
+        encoded = self.transformer(embedded.transpose(0, 1))
+        text_vec = encoded.mean(dim=0)
 
         # Project structured features into the same hidden space
         struct_vec = self.feature_proj(features)

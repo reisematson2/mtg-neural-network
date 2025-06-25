@@ -50,23 +50,31 @@ class CardDataset(Dataset):
         # -------------------------
         # Base numeric columns used for normalization. We keep power/toughness
         # separate so formulas like "*" or "X+1" don't skew the statistics.
-        num_cols = ["mana_value", "appearances"]
-        for col in num_cols:
-            if col not in self.df.columns:
-                self.df[col] = 0.0
+        num_cols = ["mana_value"]
+        if "appearances" not in self.df.columns:
+            self.df["appearances"] = 0.0
+        # Ensure the appearance count is numeric
+        self.df["appearances"] = pd.to_numeric(
+            self.df["appearances"], errors="coerce"
+        ).fillna(0).astype(float)
+        # Binary flag if the card has been seen in tournament data
+        self.df["seen_flag"] = (self.df["appearances"] > 0).astype(int)
+        # Log transform of appearances replaces the raw count feature
+        self.df["log_appearances"] = np.log1p(self.df["appearances"]).astype(float)
+        num_cols.append("log_appearances")
 
         # Ensure power and toughness columns exist for later parsing
         for col in ["power", "toughness"]:
             if col not in self.df.columns:
                 self.df[col] = np.nan
 
-        # Fill and coerce numerics
+        # Fill and coerce numerics (mana_value and log_appearances)
         for col in num_cols:
-            self.df[col] = pd.to_numeric(self.df[col], errors="coerce").fillna(0).astype(float)
-
-        # Add log transform of appearances
-        self.df["log_appearances"] = np.log1p(self.df["appearances"]).astype(float)
-        num_cols.append("log_appearances")
+            if col not in self.df.columns:
+                self.df[col] = 0.0
+            self.df[col] = (
+                pd.to_numeric(self.df[col], errors="coerce").fillna(0).astype(float)
+            )
 
         # Compute normalization stats for numeric features
         self.means = self.df[num_cols].mean()
@@ -83,10 +91,21 @@ class CardDataset(Dataset):
         rarity_oh = torch.eye(len(self.rarity_map))[rarity_idxs]
 
         # ----- type line specific flags -----
-        type_categories = ["Creature", "Artifact", "Enchantment", "Planeswalker", "Land", "Instant", "Sorcery"]
+        type_categories = [
+            "Equipment",
+            "Enchantment",
+            "Creature",
+            "Instant",
+            "Sorcery",
+            "Land",
+            "Planeswalker",
+        ]
         for cat in type_categories:
             self.df[f"type_{cat.lower()}"] = self.df["type_line"].str.contains(cat, case=False, na=False).astype(int)
-        type_flags = torch.tensor(self.df[[f"type_{c.lower()}" for c in type_categories]].values, dtype=torch.float32)
+        type_flags = torch.tensor(
+            self.df[[f"type_{c.lower()}" for c in type_categories]].values,
+            dtype=torch.float32,
+        )
 
         # ----- color identity flags -----
         color_codes = ["W", "U", "B", "R", "G", "C"]
@@ -96,6 +115,15 @@ class CardDataset(Dataset):
         for c in color_codes:
             self.df[f"color_{c}"] = self.df["colors"].str.contains(c, case=False, na=False).astype(int)
         color_flags = torch.tensor(self.df[[f"color_{c}" for c in color_codes]].values, dtype=torch.float32)
+
+        # ----- mechanic flags parsed from oracle_text -----
+        self.df["anthem_flag"] = self.df["oracle_text"].str.contains(r"get \+", case=False, na=False).astype(int)
+        self.df["sacrifice_flag"] = self.df["oracle_text"].str.contains("sacrifice", case=False, na=False).astype(int)
+        self.df["draw_flag"] = self.df["oracle_text"].str.contains("draw a card", case=False, na=False).astype(int)
+        mechanic_flags = torch.tensor(
+            self.df[["anthem_flag", "sacrifice_flag", "draw_flag"]].values,
+            dtype=torch.float32,
+        )
 
         # ----- mana curve buckets -----
         self.df["cmc_0_1"] = (self.df["mana_value"] <= 1).astype(int)
@@ -142,8 +170,9 @@ class CardDataset(Dataset):
 
         # Combine structured features
         numeric_tensor = torch.tensor(normed.values, dtype=torch.float32)
+        seen_tensor = torch.tensor(self.df["seen_flag"].values, dtype=torch.float32).unsqueeze(1)
         self.features = torch.cat(
-            [numeric_tensor, pt_tensor, rarity_oh, type_flags, color_flags, cmc_flags],
+            [numeric_tensor, seen_tensor, pt_tensor, rarity_oh, type_flags, color_flags, cmc_flags, mechanic_flags],
             dim=1,
         )
 
@@ -177,11 +206,12 @@ class CardDataset(Dataset):
         tokens = torch.tensor(_encode(str(row.get("oracle_text", "")), self.vocab), dtype=torch.long)
 
         # numeric
+        appearances = float(row.get("appearances", 0))
         data = {
             "mana_value": float(row.get("mana_value", 0)),
-            "appearances": float(row.get("appearances", 0)),
+            "log_appearances": np.log1p(appearances),
         }
-        data["log_appearances"] = np.log1p(data["appearances"])
+        seen_flag = float(appearances > 0)
         num_vec = [(data[c] - self.means[c]) / self.stds[c] for c in self.means.index]
         num_tensor = torch.tensor(num_vec, dtype=torch.float32)
 
@@ -207,8 +237,19 @@ class CardDataset(Dataset):
         rarity_tensor = torch.eye(len(self.rarity_map))[r_idx]
 
         # type flags
-        type_categories = ["Creature", "Artifact", "Enchantment", "Planeswalker", "Land", "Instant", "Sorcery"]
-        type_vals = [int(str(row.get("type_line", "")).lower().find(cat.lower()) != -1) for cat in type_categories]
+        type_categories = [
+            "Equipment",
+            "Enchantment",
+            "Creature",
+            "Instant",
+            "Sorcery",
+            "Land",
+            "Planeswalker",
+        ]
+        type_vals = [
+            int(str(row.get("type_line", "")).lower().find(cat.lower()) != -1)
+            for cat in type_categories
+        ]
         type_tensor = torch.tensor(type_vals, dtype=torch.float32)
 
         # color flags
@@ -217,12 +258,22 @@ class CardDataset(Dataset):
         color_vals = [int(code in colors) for code in color_codes]
         color_tensor = torch.tensor(color_vals, dtype=torch.float32)
 
+        # mechanic keywords
+        text_lower = str(row.get("oracle_text", "")).lower()
+        anthem_flag = float("get +" in text_lower)
+        sacrifice_flag = float("sacrifice" in text_lower)
+        draw_flag = float("draw a card" in text_lower)
+        mech_tensor = torch.tensor([anthem_flag, sacrifice_flag, draw_flag], dtype=torch.float32)
+
         # mana curve
         mana = data["mana_value"]
         cmc_vals = [int(mana <= 1), int(2 <= mana <= 3), int(mana >= 4)]
         cmc_tensor = torch.tensor(cmc_vals, dtype=torch.float32)
 
-        feat = torch.cat([num_tensor, pt_vec, rarity_tensor, type_tensor, color_tensor, cmc_tensor])
+        seen_tensor = torch.tensor([seen_flag], dtype=torch.float32)
+        feat = torch.cat(
+            [num_tensor, seen_tensor, pt_vec, rarity_tensor, type_tensor, color_tensor, cmc_tensor, mech_tensor]
+        )
         return tokens, feat
 
 
