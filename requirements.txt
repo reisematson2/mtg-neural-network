@@ -6,3 +6,6 @@ matplotlib
 fastapi
 uvicorn
 pytest
+pyyaml
+beautifulsoup4
+tqdm
