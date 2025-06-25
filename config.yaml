@@ -11,6 +11,6 @@ training:
   seed: 42
 
 model:
-  embed_dim: 32
+  embed_dim: 128
   lstm_dim: 32
   hidden_dim: 64
