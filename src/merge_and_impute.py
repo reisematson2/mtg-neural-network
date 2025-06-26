@@ -82,6 +82,16 @@ def main() -> None:
     # Optional feature for models: flag cards never seen in a tournament
     merged["never_seen_flag"] = (~merged["seen"]).astype(int)
 
+    # --- Impute missing labels for cards without match data ---
+    # For cards with no tournament data, fill win_rate and strength_score with the global mean
+    mean_wr = merged['win_rate'].mean()
+    merged['win_rate'] = merged['win_rate'].fillna(mean_wr)
+    merged['strength_score'] = merged['win_rate']
+    # For unseen cards, set appearances/log_appearances to zero
+    merged['appearances'] = merged['appearances'].fillna(0)
+    merged['log_appearances'] = merged['log_appearances'].fillna(0)
+    # (Above: This ensures cards with no match data get a sensible prior, not NaN targets)
+
     # Ensure the output uses 'mana_value' as the column name for numeric features
     if "mana_cost" in merged.columns:
         merged = merged.rename(columns={"mana_cost": "mana_value"})
